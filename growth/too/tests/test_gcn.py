@@ -70,11 +70,12 @@ def test_grb180116a_fin_pos(mock_call_everyone, mock_contour,
     filterScheduleType = 'block'
     schedule_type = 'greedy'
     probability = 0.9
-    plan_name = "%s_%s_%d_%d_%s_%d_%d" % ("".join(filt), schedule_type,
-                                          doDither, doReferences,
-                                          filterScheduleType,
-                                          exposuretimes[0],
-                                          100*probability)
+    plan_name = "%s_%s_%s_%d_%d_%s_%d_%d" % (localization.localization_name,
+                                             "".join(filt), schedule_type,
+                                             doDither, doReferences,
+                                             filterScheduleType,
+                                             exposuretimes[0],
+                                             100*probability)
     plan = models.Plan.query.filter_by(plan_name=plan_name,
                                        telescope=telescope).one()
 
@@ -87,11 +88,11 @@ def test_grb180116a_fin_pos(mock_call_everyone, mock_contour,
 
     for exposure in exposures:
         field_id = exposure.field_id
-        assert np.all(np.array(field_id) < 907)
+        assert np.all(np.array(field_id) < 2000)
         assert np.all(np.array(exposure.exposure_time) > 0)
         assert np.all(np.array(exposure.weight) <= 1)
 
-    assert np.isclose(plan.area, 790.3129926351713)
+    assert np.isclose(plan.area, 604.8028691170906)
 
     # Try submitting some of the observing plans.
     flask.post(

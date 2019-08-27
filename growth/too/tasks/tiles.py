@@ -25,6 +25,7 @@ import numpy as np
 import growth
 from . import celery
 from .. import models
+from ..flask import app
 
 log = get_task_logger(__name__)
 
@@ -43,7 +44,13 @@ def params_struct(dateobs, tobs=None, filt=['r'], exposuretimes=[60.0],
     growthpath = os.path.dirname(growth.__file__)
     config_directory = os.path.join(growthpath, 'too', 'config')
     tiling_directory = os.path.join(growthpath, 'too', 'tiling')
-    catalog_directory = os.path.join(growthpath, 'too', 'catalog')
+
+    catalogpath = os.path.join('too', 'catalog')
+    try:
+        app.open_instance_resource('%s/CLU.hdf5' % catalogpath)
+        catalog_directory = app.instance_path
+    except IOError:
+        catalog_directory = os.path.join(growthpath, catalogpath)
 
     params = {}
     params["config"] = {}
@@ -191,6 +198,7 @@ def params_struct(dateobs, tobs=None, filt=['r'], exposuretimes=[60.0],
     params["mindiff"] = mindiff
 
     params = gwemopt.segments.get_telescope_segments(params)
+    params = gwemopt.utils.params_checker(params)
 
     if params["doPlots"]:
         if not os.path.isdir(params["outputDir"]):
@@ -233,9 +241,8 @@ def gen_structs(params):
         raise ValueError(
             'Need tilesType to be moc, greedy, hierarchical, galaxy or ranked')
 
-    coverage_struct = gwemopt.coverage.timeallocation(params,
-                                                      map_struct,
-                                                      tile_structs)
+    tile_structs, coverage_struct = gwemopt.coverage.timeallocation(
+        params, map_struct, tile_structs)
 
     if params["doPlots"]:
         gwemopt.plotting.skymap(params, map_struct)
@@ -254,7 +261,7 @@ def get_planned_observations(
         telescope = params["telescopes"][0]
         config_struct = params["config"][telescope]
 
-        field_ids, ras, decs, probs, nexposures = [], [], [], [], []
+        field_ids = []
         segmentlist = segments.segmentlist()
         totprob = 0.0
         for field_id in tile_structs[telescope].keys():
@@ -263,13 +270,9 @@ def get_planned_observations(
 
             if tile_struct["nexposures"] > 0.0:
                 field_ids.append(field_id)
-                ras.append(tile_struct["ra"])
-                decs.append(tile_struct["dec"])
-                probs.append(tile_struct["prob"])
-                nexposures.append(tile_struct["nexposures"])
-                totprob = totprob+tile_struct["prob"]
+                totprob += tile_struct["prob"]
 
-                segmentlist = segmentlist + tile_struct["segmentlist"]
+                segmentlist += tile_struct["segmentlist"]
                 segmentlist = segmentlist.coalesce()
 
                 if params["tilesType"] == "galaxy":
@@ -301,14 +304,12 @@ def get_planned_observations(
                             'coordinates': [corners.tolist()]
                         },
                         'properties': {
-                            'field_key': "%s_%d" % (telescope, int(field_id)),
                             'telescope': telescope,
                             'field_id': int(field_id),
                             'ra': ra,
                             'dec': dec,
-                            'reference_filter_ids': ref_filter_ids,
-                            'reference_filter_bands': ref_filter_bands,
-                            'reference_filter_mags': ref_filter_mags
+                            'depth': dict(zip(ref_filter_bands,
+                                              ref_filter_mags))
                         }
                     }
                     field = models.Field(telescope=telescope,
@@ -371,7 +372,8 @@ def tile(localization_name, dateobs, telescope,
     plan_args.setdefault('probability', 0.9)
 
     if plan_name is None:
-        plan_name = "%s_%s_%d_%d_%s_%d_%d" % (
+        plan_name = "%s_%s_%s_%d_%d_%s_%d_%d" % (
+            localization_name,
             "".join(plan_args['filt']), plan_args['schedule_type'],
             plan_args['doDither'], plan_args['doReferences'],
             plan_args['filterScheduleType'],
