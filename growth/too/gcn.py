@@ -171,7 +171,8 @@ UNDESIRABLE_TAGS = {'transient', 'MDC', 'retracted'}
     gcn.NoticeType.LVC_RETRACTION,
     gcn.NoticeType.AMON_ICECUBE_COINC,
     gcn.NoticeType.AMON_ICECUBE_HESE,
-    gcn.NoticeType.AMON_ICECUBE_EHE
+    gcn.NoticeType.ICECUBE_ASTROTRACK_GOLD,
+    gcn.NoticeType.ICECUBE_ASTROTRACK_BRONZE
 )
 def handle(payload, root):
     with app.app_context():
@@ -220,6 +221,7 @@ def handle(payload, root):
             tasks.twilio.text_everyone.delay(
                 render_template('event_new_text.txt', event=event))
             tasks.email.email_everyone.delay(dateobs)
+            tasks.slack.slack_everyone.delay(dateobs)
 
 
 def listen():

@@ -38,6 +38,7 @@ def params_struct(dateobs, tobs=None, filt=['r'], exposuretimes=[60.0],
                   schedule_type='greedy',
                   doReferences=True,
                   doUsePrimary=False,
+                  doBalanceExposure=False,
                   filterScheduleType='block',
                   schedule_strategy='tiling'):
 
@@ -149,6 +150,7 @@ def params_struct(dateobs, tobs=None, filt=['r'], exposuretimes=[60.0],
     params["doDatabase"] = True
     params["doReferences"] = doReferences
     params["doUsePrimary"] = doUsePrimary
+    params["doBalanceExposure"] = doBalanceExposure
     params["doSplit"] = False
     params["doParallel"] = False
     params["doUseCatalog"] = False
@@ -263,14 +265,12 @@ def get_planned_observations(
 
         field_ids = []
         segmentlist = segments.segmentlist()
-        totprob = 0.0
         for field_id in tile_structs[telescope].keys():
             tile_struct = tile_structs[telescope][field_id]
             ra, dec = tile_struct["ra"], tile_struct["dec"]
 
             if tile_struct["nexposures"] > 0.0:
                 field_ids.append(field_id)
-                totprob += tile_struct["prob"]
 
                 segmentlist += tile_struct["segmentlist"]
                 segmentlist = segmentlist.coalesce()

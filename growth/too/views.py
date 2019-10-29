@@ -280,7 +280,8 @@ def plan(dateobs):
             group(
                 group(
                     tasks.scheduler.submit.s(telescope, plan_name),
-                    tasks.email.compose_too.s(telescope, plan_name)
+                    tasks.email.compose_too.si(telescope, plan_name),
+                    tasks.slack.slack_too.si(telescope, plan_name)
                 )
                 for telescope, plan_name in plans
             ).delay(dateobs)
@@ -403,6 +404,8 @@ class PlanForm(ModelForm):
 
     primary = BooleanField(default=False)
 
+    balance = BooleanField(default=False)
+
     filterschedule = RadioField(
         choices=[('block', 'block'), ('integrated', 'integrated')],
         default='block')
@@ -487,6 +490,7 @@ class PlanForm(ModelForm):
             doDither=self.dither.data,
             doReferences=self.references.data,
             doUsePrimary=self.primary.data,
+            doBalanceExposure=self.balance.data,
             filterScheduleType=self.filterschedule.data,
             schedule_strategy=self.schedule_strategy.data,
             usePrevious=self.previous.data,
@@ -560,6 +564,14 @@ class PlanManualForm(ModelForm):
         validators=[validators.DataRequired()],
         default='REPLACE ME')
 
+    subprogram_name = TextField(
+        validators=[validators.DataRequired()],
+        default='GW')
+
+    program_id = SelectField(default='Partnership',
+                             choices=[('2', 'Partnership'),
+                                      ('3', 'Caltech')])
+
     def validate_validity_window_end(self, field):
         other = self.validity_window_start
         if field.validate(self) and other.validate(self):
@@ -596,6 +608,8 @@ def plan_manual():
                 tasks.scheduler.submit_manual.s(
                     telescope, json_data, queue_name),
                 tasks.email.compose_too.s(
+                    telescope, queue_name),
+                tasks.slack.slack_too.s(
                     telescope, queue_name)
             ).delay()
 
@@ -814,11 +828,13 @@ def galaxies_data(dateobs):
         ).one_or_none() or event.localizations[-1])
     results = find_injection_moc(
         localization.table,
-        np.deg2rad(table['ra']),
-        np.deg2rad(table['dec']),
-        table['distmpc'])
-    table['2D CL'][:] = np.ma.masked_invalid(results.searched_prob)
-    table['3D CL'][:] = np.ma.masked_invalid(results.searched_prob_vol)
+        table['ra'].to(u.rad).value,
+        table['dec'].to(u.rad).value,
+        table['distmpc'].to(u.Mpc).value)
+    table['2D CL'][:] = np.ma.masked_invalid(results.searched_prob) * 100
+    table['3D CL'][:] = np.ma.masked_invalid(results.searched_prob_vol) * 100
+    table['2D pdf'][:] = np.ma.masked_invalid(results.probdensity)
+    table['3D pdf'][:] = np.ma.masked_invalid(results.probdensity_vol)
 
     result = {}
 
@@ -952,6 +968,9 @@ def get_json_data_manual(form):
     doReferences = bool(form.references.data)
     exposure_time = form.exposure_time.data
     queue_name = form.queue_name.data
+    subprogram_name = form.subprogram_name.data
+    username = current_user.name
+    program_id = int(form.program_id.data)
 
     start_mjd = time.Time(form.validity_window_start.data).mjd
     end_mjd = time.Time(form.validity_window_end.data).mjd
@@ -960,7 +979,6 @@ def get_json_data_manual(form):
                    'Gattini': 'Kasliwal', 'KPED': 'Coughlin',
                    'GROWTH-India': 'Bhalerao'}
 
-    program_id = 2
     bands = {'g': 1, 'r': 2, 'i': 3, 'z': 4, 'J': 5}
     json_data = {'queue_name': "ToO_" + queue_name,
                  'validity_window_mjd': [start_mjd, end_mjd]}
@@ -981,8 +999,8 @@ def get_json_data_manual(form):
                       'dec': field.dec,
                       'filter_id': filter_id,
                       'exposure_time': exposure_time,
-                      'program_pi': program_pis[telescope],
-                      'subprogram_name': "ToO_manual"
+                      'program_pi': program_pis[telescope] + '/' + username,
+                      'subprogram_name': "ToO_" + subprogram_name
                       }
             targets.append(target)
             cnt = cnt + 1

@@ -34,7 +34,7 @@ RUN /opt/python/cp37-cp37m/bin/pip wheel --no-deps --no-cache-dir -w /wheelhouse
 # manylinux2010 wheels.
 #
 
-FROM debian:testing-slim AS apt-install
+FROM debian:stable-slim AS apt-install
 
 RUN apt-get update && apt-get -y install --no-install-recommends \
     ipython3 \
@@ -55,6 +55,7 @@ RUN apt-get update && apt-get -y install --no-install-recommends \
     python3-h5py \
     python3-lxml \
     python3-flask-mail \
+    python3-freezegun \
     python3-matplotlib \
     python3-networkx \
     python3-numpy \

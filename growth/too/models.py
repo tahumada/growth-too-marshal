@@ -61,6 +61,7 @@ def create_all():
             'exposuretimes': [300.0, 300.0, 300.0],
             'doReferences': True,
             'doUsePrimary': True,
+            'doBalanceExposure': False,
             'doDither': False,
             'usePrevious': False,
             'schedule_type': 'greedy',
@@ -74,6 +75,7 @@ def create_all():
             'exposuretimes': [25.0, 25.0],
             'doReferences': True,
             'doUsePrimary': False,
+            'doBalanceExposure': False,
             'doDither': True,
             'usePrevious': False,
             'schedule_type': 'greedy_slew',
@@ -87,6 +89,7 @@ def create_all():
             'exposuretimes': [300.0],
             'doReferences': False,
             'doUsePrimary': False,
+            'doBalanceExposure': False,
             'doDither': False,
             'usePrevious': False,
             'schedule_type': 'greedy',
@@ -100,6 +103,7 @@ def create_all():
             'exposuretimes': [300.0],
             'doReferences': False,
             'doUsePrimary': False,
+            'doBalanceExposure': False,
             'doDither': False,
             'usePrevious': False,
             'schedule_type': 'greedy',
@@ -113,6 +117,7 @@ def create_all():
             'exposuretimes': [300.0],
             'doReferences': False,
             'doUsePrimary': False,
+            'doBalanceExposure': False,
             'doDither': False,
             'usePrevious': False,
             'schedule_type': 'greedy',
@@ -943,3 +948,62 @@ class Observation(db.Model):
          db.Boolean,
          nullable=False,
          comment='processed successfully?')
+
+
+class Candidate(db.Model):
+
+    name = db.Column(
+        db.String,
+        primary_key=True,
+        comment='Candidate name')
+
+    subfield_id = db.Column(
+        db.Integer,
+        nullable=True,
+        comment='Readout channel ID')
+
+    creationdate = db.Column(
+        db.DateTime,
+        comment='Date of candidate creation')
+
+    classification = db.Column(
+        db.String,
+        nullable=True,
+        comment='Classification')
+
+    redshift = db.Column(
+        db.Float,
+        nullable=True,
+        comment='Resdshift of the source')
+
+    iauname = db.Column(
+        db.String,
+        nullable=True,
+        comment='IAU name on TNS')
+
+    field_id = db.Column(
+        db.Integer,
+        comment='Field ID')
+
+    candid = db.Column(
+        db.BigInteger,
+        comment='Candidate ID')
+
+    ra = db.Column(
+        db.Float,
+        nullable=False,
+        comment='RA of the candidate')
+
+    dec = db.Column(
+        db.Float,
+        nullable=False,
+        comment='Dec of the candidate')
+
+    lastmodified = db.Column(
+        db.DateTime,
+        comment='Date of last modification')
+
+    autoannotations = db.Column(
+        db.String,
+        nullable=True,
+        comment='Autoannotations from the GROWTH marshal')
