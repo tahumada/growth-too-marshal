@@ -1,11 +1,11 @@
 cache: pip
 
-dist: xenial
+dist: bionic
 
 language: python
 
 python:
-  - "3.6"
+  - "3.7"
 
 jobs:
   include:
@@ -20,7 +20,6 @@ jobs:
             - postgresql-server-dev-11
         postgresql: "11"
       install:
-        - pip install 'kombu <= 4.5.0'  # FIXME: https://github.com/celery/celery/issues/5261
         - pip install pytest-cov coveralls -r requirements.txt -r test-requirements.txt
         - pip install -e .
         - growth-too iers

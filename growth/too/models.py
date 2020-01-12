@@ -64,11 +64,18 @@ def create_all():
             'doBalanceExposure': False,
             'doDither': False,
             'usePrevious': False,
+            'doCompletedObservations': False,
+            'doPlannedObservations': False,
+            'cobs': [None, None],
             'schedule_type': 'greedy',
             'filterScheduleType': 'block',
             'airmass': 2.5,
             'schedule_strategy': 'tiling',
-            'mindiff': 30.*60.
+            'mindiff': 30.*60.,
+            'doMaxTiles': False,
+            'max_nb_tiles': 1000,
+            'doRASlice': True,
+            'raslice': [0.0, 24.0],
         },
         'DECam': {
             'filt': ['g', 'z'],
@@ -78,11 +85,18 @@ def create_all():
             'doBalanceExposure': False,
             'doDither': True,
             'usePrevious': False,
+            'doCompletedObservations': False,
+            'doPlannedObservations': False,
+            'cobs': [None, None],
             'schedule_type': 'greedy_slew',
             'filterScheduleType': 'integrated',
             'airmass': 2.5,
             'schedule_strategy': 'tiling',
-            'mindiff': 30.*60.
+            'mindiff': 30.*60.,
+            'doMaxTiles': False,
+            'max_nb_tiles': 1000,
+            'doRASlice': True,
+            'raslice': [0.0, 24.0],
         },
         'Gattini': {
             'filt': ['J'],
@@ -92,11 +106,18 @@ def create_all():
             'doBalanceExposure': False,
             'doDither': False,
             'usePrevious': False,
+            'doCompletedObservations': False,
+            'doPlannedObservations': False,
+            'cobs': [None, None],
             'schedule_type': 'greedy',
             'filterScheduleType': 'block',
             'airmass': 2.5,
             'schedule_strategy': 'tiling',
-            'mindiff': 30.*60.
+            'mindiff': 30.*60.,
+            'doMaxTiles': False,
+            'max_nb_tiles': 1000,
+            'doRASlice': True,
+            'raslice': [0.0, 24.0]
         },
         'KPED': {
             'filt': ['r'],
@@ -106,11 +127,18 @@ def create_all():
             'doBalanceExposure': False,
             'doDither': False,
             'usePrevious': False,
+            'doCompletedObservations': False,
+            'doPlannedObservations': False,
+            'cobs': [None, None],
             'schedule_type': 'greedy',
             'filterScheduleType': 'integrated',
             'airmass': 2.5,
             'schedule_strategy': 'catalog',
-            'mindiff': 30.*60.
+            'mindiff': 30.*60.,
+            'doMaxTiles': False,
+            'max_nb_tiles': 1000,
+            'doRASlice': True,
+            'raslice': [0.0, 24.0]
         },
         'GROWTH-India': {
             'filt': ['r'],
@@ -120,11 +148,18 @@ def create_all():
             'doBalanceExposure': False,
             'doDither': False,
             'usePrevious': False,
+            'doCompletedObservations': False,
+            'doPlannedObservations': False,
+            'cobs': [None, None],
             'schedule_type': 'greedy',
             'filterScheduleType': 'integrated',
             'airmass': 2.5,
             'schedule_strategy': 'catalog',
-            'mindiff': 30.*60.
+            'mindiff': 30.*60.,
+            'doMaxTiles': False,
+            'max_nb_tiles': 1000,
+            'doRASlice': True,
+            'raslice': [0.0, 24.0]
         }
     }
 
@@ -750,10 +785,15 @@ class Plan(db.Model):
         else:
             return None
 
-    @property
+    @hybrid_property
     def num_observations(self):
         """Number of planned observation."""
         return len(self.planned_observations)
+
+    @num_observations.expression
+    def num_observations(cls):
+        """Number of planned observation."""
+        return cls.planned_observations.count()
 
     @property
     def num_observations_per_filter(self):
@@ -945,9 +985,9 @@ class Observation(db.Model):
         comment='subfield (e.g. quadrant/chip as relevant for instrument')
 
     successful = db.Column(
-         db.Boolean,
-         nullable=False,
-         comment='processed successfully?')
+        db.Boolean,
+        nullable=False,
+        comment='processed successfully?')
 
 
 class Candidate(db.Model):
@@ -956,6 +996,11 @@ class Candidate(db.Model):
         db.String,
         primary_key=True,
         comment='Candidate name')
+
+    growth_marshal_id = db.Column(
+        db.String,
+        unique=True, nullable=False,
+        comment='GROWTH marshal ID')
 
     subfield_id = db.Column(
         db.Integer,
@@ -999,11 +1044,142 @@ class Candidate(db.Model):
         nullable=False,
         comment='Dec of the candidate')
 
-    lastmodified = db.Column(
+    last_updated = db.Column(
         db.DateTime,
-        comment='Date of last modification')
+        nullable=False,
+        comment='Date of last update')
 
     autoannotations = db.Column(
         db.String,
         nullable=True,
         comment='Autoannotations from the GROWTH marshal')
+
+    photometry = db.relationship(
+        lambda: CandidatePhotometry,
+        backref='candidate',
+        order_by=lambda: CandidatePhotometry.dateobs)
+
+    @property
+    def first_detection_time(self):
+        try:
+            return self.photometry[0].dateobs
+        except IndexError:
+            return None
+
+    @property
+    def first_detection_mag(self):
+        try:
+            return self.photometry[0].mag
+        except IndexError:
+            return None
+
+    @property
+    def first_detection_magerr(self):
+        try:
+            return self.photometry[0].magerr
+        except IndexError:
+            return None
+
+    @property
+    def first_detection_instrument(self):
+        try:
+            return self.photometry[0].instrument
+        except IndexError:
+            return None
+
+    @property
+    def first_detection_filter(self):
+        try:
+            return self.photometry[0].fil
+        except IndexError:
+            return None
+
+    @property
+    def last_detection_time(self):
+        try:
+            return self.photometry[-1].dateobs
+        except IndexError:
+            return None
+
+    @property
+    def last_detection_mag(self):
+        try:
+            return self.photometry[-1].mag
+        except IndexError:
+            return None
+
+    @property
+    def last_detection_magerr(self):
+        try:
+            return self.photometry[-1].magerr
+        except IndexError:
+            return None
+
+    @property
+    def last_detection_instrument(self):
+        try:
+            return self.photometry[-1].instrument
+        except IndexError:
+            return None
+
+    @property
+    def last_detection_filter(self):
+        try:
+            return self.photometry[-1].fil
+        except IndexError:
+            return None
+
+
+class CandidatePhotometry(db.Model):
+    """Candidate light curve pulled from the GROWTH
+    Marshal"""
+
+    lcid = db.Column(
+        db.BigInteger,
+        primary_key=True)
+
+    name = db.Column(
+        db.ForeignKey(Candidate.name),
+        nullable=False,
+        comment='Candidate name')
+
+    dateobs = db.Column(
+        db.DateTime,
+        nullable=True,
+        index=True,
+        comment='Observation date')
+
+    fil = db.Column(
+        db.String,
+        nullable=True,
+        comment='Filter')
+
+    instrument = db.Column(
+        db.String,
+        nullable=True,
+        comment='Instruments')
+
+    limmag = db.Column(
+        db.Float,
+        nullable=True,
+        comment='Limiting magnitude')
+
+    mag = db.Column(
+        db.Float,
+        nullable=True,
+        comment='Mag PSF')
+
+    magerr = db.Column(
+        db.Float,
+        nullable=True,
+        comment='Mag uncertainty')
+
+    exptime = db.Column(
+        db.Float,
+        nullable=True,
+        comment='Exposure time')
+
+    programid = db.Column(
+        db.Integer,
+        nullable=True,
+        comment='Program ID number (1,2,3)')

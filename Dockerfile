@@ -3,7 +3,7 @@
 # Build Python wheels for dependencies that are not in apt or PyPI.
 #
 
-FROM quay.io/pypa/manylinux1_x86_64 AS wheel-deps
+FROM quay.io/pypa/manylinux2010_x86_64 AS wheel-deps
 
 RUN /opt/python/cp37-cp37m/bin/pip wheel --no-deps --no-cache-dir \
     lscsoft-glue \
@@ -22,7 +22,7 @@ RUN /opt/python/cp37-cp37m/bin/pip wheel --no-deps --no-cache-dir \
 # Stage 2: wheel-self
 # Build a Python wheel for this package itself.
 #
-FROM quay.io/pypa/manylinux1_x86_64 AS wheel-self
+FROM quay.io/pypa/manylinux2010_x86_64 AS wheel-self
 COPY . /src
 RUN /opt/python/cp37-cp37m/bin/pip wheel --no-deps --no-cache-dir -w /wheelhouse /src
 
@@ -41,7 +41,6 @@ RUN apt-get update && apt-get -y install --no-install-recommends \
     gunicorn3 \
     openssh-client \
     python3-astropy \
-    python3-astroquery \
     python3-celery \
     python3-dateutil \
     python3-ephem \
@@ -65,7 +64,6 @@ RUN apt-get update && apt-get -y install --no-install-recommends \
     python3-pip \
     python3-psycopg2 \
     python3-redis \
-    python3-reproject \
     python3-scipy \
     python3-seaborn \
     python3-setuptools \
@@ -75,8 +73,7 @@ RUN apt-get update && apt-get -y install --no-install-recommends \
     python3-tornado \
     python3-twilio \
     python3-tz \
-    python3-wtforms \
-    python3-pyvo && \
+    python3-wtforms && \
     rm -rf /var/lib/apt/lists/* && \
     pip3 install --upgrade --no-cache-dir pip
 
@@ -126,11 +123,11 @@ RUN useradd -mr growth-too-marshal && \
     mkdir -p /usr/var/growth.too.flask-instance/input && \
     ln -s /run/secrets/application.cfg.d /usr/var/growth.too.flask-instance/application.cfg.d && \
     ln -s /run/secrets/htpasswd /usr/var/growth.too.flask-instance/htpasswd && \
-    ln -s /run/secrets/netrc /root/netrc && \
     ln -s /run/secrets/GROWTH-India.tess /usr/var/growth.too.flask-instance/input/GROWTH-India.tess && \
     ln -s /run/secrets/CLU.hdf5 /usr/var/growth.too.flask-instance/catalog/CLU.hdf5
 COPY docker/etc/ssh/ssh_known_hosts /etc/ssh/ssh_known_hosts
 COPY docker/usr/var/growth.too.flask-instance/application.cfg /usr/var/growth.too.flask-instance/application.cfg
+COPY docker/entrypoint.sh /entrypoint.sh
 
 USER growth-too-marshal:growth-too-marshal
 WORKDIR /home/growth-too-marshal
@@ -138,4 +135,4 @@ WORKDIR /home/growth-too-marshal
 # Prime some cached Astropy data.
 RUN growth-too iers
 
-ENTRYPOINT ["growth-too"]
+ENTRYPOINT ["/entrypoint.sh"]
