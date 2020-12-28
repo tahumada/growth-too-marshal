@@ -10,13 +10,13 @@ import tempfile
 
 from celery import group
 import numpy as np
+from astropy.coordinates import SkyCoord
 from astropy import time
 import astropy.units as u
-from astropy.coordinates import SkyCoord
 from astropy.table import Table
 import pandas as pd
 from ligo.skymap import io
-from ligo.skymap.postprocess import find_injection_moc
+from ligo.skymap.postprocess import crossmatch
 from ligo.skymap.tool.ligo_skymap_plot_airmass import main as plot_airmass
 from ligo.skymap.tool.ligo_skymap_plot_observability import main \
     as plot_observability
@@ -29,10 +29,12 @@ from flask import (
 from flask_caching import Cache
 from flask_login import (
     current_user, login_required, login_user, logout_user, LoginManager)
-from wtforms import BooleanField, FloatField, RadioField, TextField
+from wtforms import (
+    BooleanField, FloatField, RadioField, TextField, IntegerField)
 from wtforms_components.fields import (
     DateTimeField, DecimalSliderField, SelectField)
 from wtforms import validators
+from wtforms_alchemy.fields import PhoneNumberField
 from passlib.apache import HtpasswdFile
 from sqlalchemy.orm.exc import MultipleResultsFound, NoResultFound
 
@@ -173,11 +175,11 @@ def queue():
         queue_info.append(f"   Number of unique field_ids: {n_fields}")
         w = queue['ordered']
         if np.sum(w) > 0:
-            queue_info.append(f"   Ordered requests:")
+            queue_info.append("   Ordered requests:")
             queue_info.append(queue.loc[w, ['field_id', 'ra', 'dec',
                                             'filter_id', 'program_id',
                                             'subprogram_name']].to_string())
-        queue_info.append(f"   Unordered requests:")
+        queue_info.append("   Unordered requests:")
         if 'slot_start_time' in queue.columns:
             grp = queue[~w].groupby('slot_start_time')
             for start_time, rows in grp:
@@ -267,12 +269,14 @@ def objects_data(dateobs):
             dateobs=event.dateobs,
             localization_name=localization_name
         ).one_or_none() or event.localizations[-1])
-    results = find_injection_moc(
+    results = crossmatch(
         localization.table,
-        np.deg2rad(table['ra']),
-        np.deg2rad(table['dec']))
+        SkyCoord(table['ra'] * u.deg, table['dec'] * u.deg))
     table['2D CL'] = np.ma.masked_invalid(results.searched_prob) * 100
     table['2D pdf'] = np.ma.masked_invalid(results.probdensity)
+
+    # Make first detection time column filterable
+    table['first_detection_time'] = table['first_detection_time'].astype(str)
 
     result = {}
 
@@ -531,7 +535,7 @@ class PlanForm(ModelForm):
         choices=[('greedy', 'greedy'), ('sear', 'sear'),
                  ('airmass_weighted', 'airmass_weighted'),
                  ('greedy_slew', 'greedy_slew')],
-        default='greedy')
+        default='greedy_slew')
 
     dither = BooleanField(default=False)
 
@@ -740,6 +744,10 @@ class PlanManualForm(ModelForm):
         validators=[validators.DataRequired()],
         default='REPLACE ME')
 
+    mode_num = IntegerField(
+        [validators.NumberRange(min=0)],
+        default=0)
+
     subprogram_name = TextField(
         validators=[validators.DataRequired()],
         default='GW')
@@ -910,66 +918,6 @@ def localization_airmass_for_date(dateobs, telescope, localization_name, date):
     return Response(contents, mimetype='image/png')
 
 
-def get_ztf_cand(url_report_page, username, password):
-
-    '''
-    Query the HTML ZTF report page to get the name & coord of the candidates
-    params:
-        url_report_page: can modify the date to get more specific results.
-            tip: copy/paste url from ztf
-        username, password : marshal GROWTH user and password
-    returns:
-        name_,coord: names and coordinates for the candidates
-    '''
-
-    # create a password manager
-    password_mgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
-
-    # Add the username and password.
-    # If we knew the realm, we could use it instead of None.
-    top_level_url = "http://skipper.caltech.edu:8080/"
-    password_mgr.add_password(None, top_level_url, username, password)
-
-    handler = urllib.request.HTTPBasicAuthHandler(password_mgr)
-
-    # create "opener" (OpenerDirector instance)
-    opener = urllib.request.build_opener(handler)
-
-    # use the opener to fetch a URL
-    opener.open(url_report_page)
-
-    # Install the opener.
-    # Now all calls to urllib.request.urlopen use our opener.
-    urllib.request.install_opener(opener)
-
-    with urllib.request.urlopen(url_report_page) as url:
-        data = url.read().decode()
-
-    print('Loaded :', len(data), 'ZTF objects')
-
-    df_list = pd.read_html(data, header=0)
-
-    coord = []
-    name_ = []
-    for i in range(len(df_list[1]['Name (age)'])):
-        if pd.notna(df_list[1]['Name (age)'][i]):
-            name_.append(df_list[1]['Name (age)'][i][:12])
-            coord.append(df_list[1]['RA  Dec'][i])
-
-    coord = np.array(coord)
-    name_ = np.array(name_)
-
-    ra_transient, dec_transient = [], []
-
-    for i in range(len(coord)):
-        c = SkyCoord(coord[i].split('+')[0], '+'+coord[i].split('+')[1],
-                     unit=(u.hourangle, u.deg))
-        ra_transient.append(c.ra.deg)
-        dec_transient.append(c.dec.deg)
-
-    return name_, ra_transient, dec_transient
-
-
 @app.route('/event/<datetime:dateobs>/localization/<localization_name>/json')
 @login_required
 @cache.cached()
@@ -1002,11 +950,9 @@ def galaxies_data(dateobs):
             dateobs=event.dateobs,
             localization_name=localization_name
         ).one_or_none() or event.localizations[-1])
-    results = find_injection_moc(
+    results = crossmatch(
         localization.table,
-        table['ra'].to(u.rad).value,
-        table['dec'].to(u.rad).value,
-        table['distmpc'].to(u.Mpc).value)
+        SkyCoord(table['ra'], table['dec'], table['distmpc']))
     table['2D CL'][:] = np.ma.masked_invalid(results.searched_prob) * 100
     table['3D CL'][:] = np.ma.masked_invalid(results.searched_prob_vol) * 100
     table['2D pdf'][:] = np.ma.masked_invalid(results.probdensity)
@@ -1147,6 +1093,7 @@ def get_json_data_manual(form):
     subprogram_name = form.subprogram_name.data
     username = current_user.name
     program_id = int(form.program_id.data)
+    mode_num = int(form.mode_num.data)
 
     start_mjd = time.Time(form.validity_window_start.data).mjd
     end_mjd = time.Time(form.validity_window_end.data).mjd
@@ -1176,7 +1123,8 @@ def get_json_data_manual(form):
                       'filter_id': filter_id,
                       'exposure_time': exposure_time,
                       'program_pi': program_pis[telescope] + '/' + username,
-                      'subprogram_name': "ToO_" + subprogram_name
+                      'subprogram_name': "ToO_" + subprogram_name,
+                      'mode_num': mode_num
                       }
             targets.append(target)
             cnt = cnt + 1
@@ -1312,38 +1260,6 @@ def get_json_data(plan, decam_style=True):
     return json_data, queue_name
 
 
-def get_total_probability(telescope, exposures):
-
-    total_probability = 0.0
-    field_ids = []
-    for ii, exposure in enumerate(exposures):
-        field_id = exposure.field.field_id
-        if field_id in field_ids:
-            continue
-        field_ids.append(field_id)
-
-        if telescope in ["ZTF", "DECam"]:
-            if exposure.filter_id in exposure.field.reference_filter_ids:
-                total_probability = total_probability + exposure.weight
-        else:
-            total_probability = total_probability + exposure.weight
-
-    return total_probability
-
-
-def get_filt_probs(tiles):
-
-    filt_probs = np.array([0.0, 0.0, 0.0, 0.0])
-    for tile in tiles:
-        for ii, filter_id in enumerate([1, 2, 3, 4]):
-            if filter_id in tile.field.reference_filter_ids:
-                filt_probs[ii] = filt_probs[ii] + tile.probability
-    filt_probs_string = "g: %.2f r: %.2f i: %.2f z: %.2f" %\
-        (filt_probs[0], filt_probs[1], filt_probs[2], filt_probs[3])
-
-    return filt_probs_string
-
-
 def get_filters_string(telescopes):
 
     filters_string = []
@@ -1363,6 +1279,8 @@ def field_json(telescope, field_id):
 class UserForm(ModelForm):
     class Meta:
         model = models.User
+
+    phone = PhoneNumberField(display_format='international')
 
 
 @app.route('/user', methods=['GET', 'POST'])
@@ -1388,13 +1306,14 @@ def user():
 def user_test():
     if current_user.phone:
         tasks.twilio.text_for.delay(
-            render_template('user_test.txt'), current_user.phone)
+            render_template('user_test.txt'), current_user.phone.e164)
         if current_user.voice:
             tasks.twilio.call_for.delay(
-                'user_test_voice_twiml', current_user.phone)
+                'user_test_voice_twiml', current_user.phone.e164)
         flash('A test alert was sent to {}. You should '
               'receive it momentarily if the server is correctly '
-              'configured.'.format(current_user.phone), 'success')
+              'configured.'.format(current_user.phone.international),
+              'success')
         return redirect(url_for('index'))
     else:
         flash('You have not yet set up your phone number.', 'danger')

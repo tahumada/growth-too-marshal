@@ -1,6 +1,7 @@
 import json
 import os.path
 import requests
+from requests import HTTPError
 import subprocess
 import tempfile
 import urllib.parse
@@ -11,9 +12,14 @@ from astropy.time import Time
 import astropy.units as u
 from astroplan import Observer, is_always_observable
 from astroplan.constraints import AltitudeConstraint
+from celery.utils.log import get_task_logger
+from flask import flash
+
 from . import celery
 from .. import models
 from .. import views
+
+log = get_task_logger(__name__)
 
 ZTF_URL = 'http://tunnel:9999'
 """URL for the P48 scheduler."""
@@ -157,7 +163,14 @@ def schedule_ztf(json_data):
                            'validity_window_mjd':
                                json_data["validity_window_mjd"],
                            'queue_type': 'list'})
-    r.raise_for_status()
+
+    try:
+        r.raise_for_status()
+    except HTTPError:
+        log.exception('submission to scheduler failed (%s)', r.text)
+        flash(r.text, 'danger')
+    else:
+        flash(r.text, 'success')
 
 
 @celery.task(ignore_result=True, shared=False)

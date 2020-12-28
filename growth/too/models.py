@@ -17,6 +17,7 @@ from flask_login.mixins import UserMixin
 from flask_sqlalchemy import SQLAlchemy
 import gcn
 import healpy as hp
+from ligo.skymap.postprocess import find_greedy_credible_levels
 from ligo.skymap.bayestar import rasterize
 import lxml.etree
 import pkg_resources
@@ -507,7 +508,7 @@ class Field(db.Model):
     reference_filter_mags = db.Column(
         db.ARRAY(db.Float),
         nullable=False,
-        comment='Reference filter magss')
+        comment='Reference filter mags')
 
     ipix = db.Column(
         db.ARRAY(db.Integer),
@@ -686,7 +687,8 @@ class Localization(db.Model):
     def table_2d(self):
         """Get multiresolution HEALPix dataset, probability density only."""
         return table.Table(
-            [self.uniq, self.probdensity], names=['UNIQ', 'PROBDENSITY'])
+            [np.asarray(self.uniq), np.asarray(self.probdensity)],
+            names=['UNIQ', 'PROBDENSITY'])
 
     @property
     def table(self):
@@ -695,9 +697,9 @@ class Localization(db.Model):
         if self.is_3d:
             return table.Table(
                 [
-                    self.uniq,
-                    self.probdensity, self.distmu,
-                    self.distsigma, self.distnorm],
+                    np.asarray(self.uniq),
+                    np.asarray(self.probdensity), np.asarray(self.distmu),
+                    np.asarray(self.distsigma), np.asarray(self.distnorm)],
                 names=[
                     'UNIQ', 'PROBDENSITY', 'DISTMU', 'DISTSIGMA', 'DISTNORM'])
         else:
@@ -709,6 +711,10 @@ class Localization(db.Model):
         order = hp.nside2order(Localization.nside)
         result = rasterize(self.table_2d, order)['PROB']
         return hp.reorder(result, 'NESTED', 'RING')
+
+    @property
+    def credible_levels_2d(self):
+        return find_greedy_credible_levels(self.flat_2d)
 
     @property
     def flat(self):
